@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<Description>The Runtime Authorization configuration.</Description>
+		<PackageTags>cirreum;runtime;server;authentication;authorization</PackageTags>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Cirreum.Core" Version="1.0.16" />
+		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.1" />
+		<PackageReference Include="Cirreum.Runtime.AuthorizationProvider" Version="1.0.1" />
+	</ItemGroup>
+
+</Project>
