@@ -4,6 +4,8 @@ using Cirreum;
 using Cirreum.Authorization;
 using Cirreum.Authorization.Configuration;
 using Cirreum.AuthorizationProvider;
+using Cirreum.AuthorizationProvider.ApiKey;
+using Cirreum.AuthorizationProvider.ApiKey.Configuration;
 using Cirreum.Providers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -14,7 +16,6 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.Net.Http.Headers;
 
 public static class HostingExtensions {
-
 	private class ConfigureAuthorizationMarker { }
 
 	/// <summary>
@@ -30,7 +31,6 @@ public static class HostingExtensions {
 	public static AuthorizationBuilder AddAuthorization(
 		this IHostApplicationBuilder builder,
 		Action<AuthenticationOptions>? authentication = null) {
-
 		// Check if already registered using a marker service		
 		if (builder.Services.IsMarkerTypeRegistered<ConfigureAuthorizationMarker>()) {
 			return builder.Services.AddAuthorizationBuilder();
@@ -82,18 +82,26 @@ public static class HostingExtensions {
 			.RegisterAuthorizationProvider<
 				EntraAuthorizationRegistrar,
 				EntraAuthorizationSettings,
-				EntraAuthorizationInstanceSettings>(authenticationBuilder);
-		//.RegisterAuthorizationProvider<Okta,....
-
+				EntraAuthorizationInstanceSettings>(authenticationBuilder)
+			.RegisterAuthorizationProvider<
+				ApiKeyAuthorizationRegistrar,
+				ApiKeyAuthorizationSettings,
+				ApiKeyAuthorizationInstanceSettings>(authenticationBuilder);
 
 		//
 		// Register Scheme Policy
 		//
 
 		authenticationBuilder.AddPolicyScheme(dynamicScheme, "Dynamic Authentication Selector", options => {
-
 			options.ForwardDefaultSelector = context => {
+				// Check header-based schemes first (API keys, etc.)
+				foreach (var (headerName, scheme) in registeredSchemes.HeaderSchemes) {
+					if (context.Request.Headers.ContainsKey(headerName)) {
+						return scheme;
+					}
+				}
 
+				// JWT Bearer token routing by audience
 				string? authValue = context.Request.Headers[HeaderNames.Authorization];
 				if (!string.IsNullOrEmpty(authValue) && authValue.StartsWith("Bearer ")) {
 					var token = authValue["Bearer ".Length..].Trim();
@@ -109,13 +117,11 @@ public static class HostingExtensions {
 								return scheme;
 							}
 						}
-
 					}
 				}
 
 				return defaultScheme;
 			};
-
 		});
 
 		//
@@ -136,14 +142,11 @@ public static class HostingExtensions {
 		authorizationBuilder.AddCorePolicies(dynamicScheme);
 
 		return authorizationBuilder;
-
 	}
-
 
 	private static void AddCorePolicies(
 		this AuthorizationBuilder builder,
 		string authorizationScheme) {
-
 		// Helper to configure policies with a single scheme
 		void ConfigurePolicy(string policyName, params string[] roles) {
 			builder.AddPolicy(policyName, policy => {
@@ -191,5 +194,4 @@ public static class HostingExtensions {
 			ApplicationRoles.AppSystemRole,
 			ApplicationRoles.AppAdminRole);
 	}
-
 }
