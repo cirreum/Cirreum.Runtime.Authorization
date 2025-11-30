@@ -7,7 +7,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="Cirreum.Authorization.ApiKey" Version="1.0.0" />
-		<PackageReference Include="Cirreum.Core" Version="1.0.17" />
+		<PackageReference Include="Cirreum.Core" Version="1.0.18" />
 		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.4" />
 		<PackageReference Include="Cirreum.Runtime.AuthorizationProvider" Version="1.0.2" />
 	</ItemGroup>
