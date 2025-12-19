@@ -14,8 +14,15 @@
 
 ## Features
 
-- **Dynamic Authentication** - Automatically routes authentication to the appropriate provider based on JWT audience claims
-- **Multi-Provider Support** - Extensible architecture supporting multiple authorization providers (currently includes Entra/Azure AD)
+- **Dynamic Authentication** - Automatically routes authentication to the appropriate provider based on request characteristics
+- **Multi-Provider Support** - Extensible architecture supporting multiple authorization providers:
+  - **Entra/Azure AD** - JWT Bearer token authentication
+  - **API Key** - Static (config) and dynamic (database) API key resolution
+  - **Signed Request** - HMAC signature authentication for high-security scenarios
+- **Smart Scheme Selection** - Automatic routing based on request headers:
+  - `Authorization: Bearer` → JWT handler
+  - `X-Api-Key` → API Key handler
+  - `X-Client-Id` + `X-Timestamp` + `X-Signature` → Signed Request handler
 - **Predefined Policies** - Hierarchical role-based authorization policies for common scenarios
 - **WebApi & WebApp Support** - Designed specifically for web-based runtime environments
 - **Seamless Integration** - Simple extension methods for ASP.NET Core host configuration
@@ -28,19 +35,63 @@ dotnet add package Cirreum.Runtime.Authorization
 
 ## Usage
 
+### Basic Setup
+
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
 // Add authorization with default configuration
 builder.AddAuthorization();
 
-// Or with custom authentication options
-builder.AddAuthorization(auth => {
-    auth.DefaultScheme = "MyScheme";
-    auth.DefaultChallengeScheme = "MyScheme";
-});
-
 var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+```
+
+### With Dynamic API Keys
+
+```csharp
+builder
+    .AddAuthorization()
+    .AddDynamicApiKeys<DatabaseApiKeyResolver>(
+        headers: ["X-Api-Key"],
+        options => options.WithCaching(TimeSpan.FromMinutes(5)));
+```
+
+### With Signed Request Authentication
+
+```csharp
+builder
+    .AddAuthorization()
+    .AddSignedRequestAuth<DatabaseSignedRequestResolver>()
+    .AddSignatureValidationEvents<RateLimitingEvents>();
+```
+
+### Combined Setup (All Auth Types)
+
+```csharp
+builder
+    .AddAuthorization()
+    // Dynamic API keys for internal services
+    .AddDynamicApiKeys<DatabaseApiKeyResolver>(
+        headers: ["X-Api-Key"],
+        options => options.WithCaching(TimeSpan.FromMinutes(5)))
+    // Signed requests for external partners
+    .AddSignedRequestAuth<DatabaseSignedRequestResolver>()
+    .AddSignatureValidationEvents<RateLimitingEvents>()
+    // Custom policies
+    .AddPolicy("InternalService", policy => {
+        policy
+            .AddAuthenticationSchemes("Header:X-Api-Key")
+            .RequireAuthenticatedUser()
+            .RequireRole("internal");
+    })
+    .AddPolicy("ExternalPartner", policy => {
+        policy
+            .AddAuthenticationSchemes("SignedRequest")
+            .RequireAuthenticatedUser()
+            .RequireRole("partner");
+    });
 ```
 
 ## Configuration
@@ -67,6 +118,26 @@ The library includes predefined authorization policies with hierarchical role ac
 - **StandardAgent** - Agent access (System + Admin + Manager + Agent roles)
 - **StandardInternal** - Internal access (System + Admin + Manager + Internal roles)
 - **Standard** - All authenticated users (all roles including User)
+
+## Authentication Scheme Routing
+
+The dynamic scheme selector automatically routes requests based on headers:
+
+| Headers Present | Routes To |
+|-----------------|-----------|
+| `Authorization: Bearer ...` | JWT handler (by audience) |
+| `X-Api-Key` | API Key handler |
+| `X-Client-Id` + `X-Timestamp` + `X-Signature` | Signed Request handler |
+| None of the above | Default scheme |
+
+## Security Levels
+
+| Level | Auth Type | Use Case |
+|-------|-----------|----------|
+| Basic | Static API Key | Dev/test, simple integrations |
+| Medium | Dynamic API Key | Internal services, trusted backends |
+| High | Signed Request | External partners, financial APIs, ISO compliance |
+| User | Entra JWT | End-user authentication |
 
 ## Contribution Guidelines
 

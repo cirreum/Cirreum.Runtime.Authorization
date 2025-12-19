@@ -6,16 +6,22 @@ using Cirreum.Authorization.Configuration;
 using Cirreum.AuthorizationProvider;
 using Cirreum.AuthorizationProvider.ApiKey;
 using Cirreum.AuthorizationProvider.ApiKey.Configuration;
+using Cirreum.AuthorizationProvider.SignedRequest;
 using Cirreum.Providers;
+
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.Net.Http.Headers;
 
 public static class HostingExtensions {
+
 	private class ConfigureAuthorizationMarker { }
 
 	/// <summary>
@@ -24,14 +30,48 @@ public static class HostingExtensions {
 	/// </summary>
 	/// <remarks>
 	/// <para>
-	/// See <see cref="AuthorizationPolicies"/>
+	/// API key and Entra (JWT) authentication are configured via appsettings.json under
+	/// <c>Cirreum:Authorization:Providers</c>. Static API keys work automatically.
+	/// </para>
+	/// <para>
+	/// For dynamic API key resolution (e.g., database-backed), use
+	/// <see cref="ApiKeyAuthorizationBuilderExtensions.AddDynamicApiKeys{TResolver}"/>.
+	/// Dynamic resolution is added on top of static configuration - both work together.
+	/// </para>
+	/// <para>
+	/// See <see cref="AuthorizationPolicies"/> for available authorization policies.
 	/// </para>
 	/// </remarks>
 	/// <returns>The <see cref="AuthorizationBuilder"/> for chaining.</returns>
+	/// <example>
+	/// <code>
+	/// // Static keys only (from appsettings/KeyVault)
+	/// builder
+	///     .AddAuthorization()
+	///     .AddPolicy("Broker", policy => {
+	///         policy
+	///             .AddAuthenticationSchemes("Header:X-Api-Key")
+	///             .RequireAuthenticatedUser()
+	///             .RequireRole("broker");
+	///     });
+	///
+	/// // Add dynamic keys (database-backed) - static keys still work
+	/// builder
+	///     .AddAuthorization()
+	///     .AddDynamicApiKeys&lt;DatabaseApiKeyResolver&gt;(o => o.WithCaching())
+	///     .AddPolicy("Partner", policy => {
+	///         policy
+	///             .AddAuthenticationSchemes("Header:X-Api-Key")
+	///             .RequireAuthenticatedUser()
+	///             .RequireRole("partner");
+	///     });
+	/// </code>
+	/// </example>
 	public static AuthorizationBuilder AddAuthorization(
 		this IHostApplicationBuilder builder,
 		Action<AuthenticationOptions>? authentication = null) {
-		// Check if already registered using a marker service		
+
+		// Check if already registered using a marker service
 		if (builder.Services.IsMarkerTypeRegistered<ConfigureAuthorizationMarker>()) {
 			return builder.Services.AddAuthorizationBuilder();
 		}
@@ -74,19 +114,39 @@ public static class HostingExtensions {
 				authentication?.Invoke(o);
 			});
 
+		// Store the authentication builder for extension methods to use
+		builder.Services.AddSingleton(authenticationBuilder);
+
 		//
 		// Register Authorization Providers...
 		//
 
-		builder
-			.RegisterAuthorizationProvider<
-				EntraAuthorizationRegistrar,
-				EntraAuthorizationSettings,
-				EntraAuthorizationInstanceSettings>(authenticationBuilder)
-			.RegisterAuthorizationProvider<
-				ApiKeyAuthorizationRegistrar,
-				ApiKeyAuthorizationSettings,
-				ApiKeyAuthorizationInstanceSettings>(authenticationBuilder);
+		// Register Entra (JWT) provider
+		builder.RegisterAuthorizationProvider<
+			EntraAuthorizationRegistrar,
+			EntraAuthorizationSettings,
+			EntraAuthorizationInstanceSettings>(authenticationBuilder);
+
+		// Register API Key provider from configuration (backward compatible)
+		// This populates the ApiKeyClientRegistry with configured keys
+		builder.RegisterAuthorizationProvider<
+			ApiKeyAuthorizationRegistrar,
+			ApiKeyAuthorizationSettings,
+			ApiKeyAuthorizationInstanceSettings>(authenticationBuilder);
+
+		// Register core API key services for the new resolver pattern
+		RegisterCoreApiKeyServices(builder.Services);
+
+		// Register the default configuration-based resolver if not already registered
+		// This enables backward compatibility - apps that don't call UseConfiguredApiKeys
+		// will still work with their configured keys
+		builder.Services.TryAddSingleton<IApiKeyClientResolver>(sp => {
+			var registry = sp.GetRequiredService<ApiKeyClientRegistry>();
+			var validator = sp.GetRequiredService<IApiKeyValidator>();
+			var options = sp.GetRequiredService<IOptions<ApiKeyValidationOptions>>();
+			var logger = sp.GetRequiredService<ILogger<ConfigurationApiKeyClientResolver>>();
+			return new ConfigurationApiKeyClientResolver(registry, validator, options, logger);
+		});
 
 		//
 		// Register Scheme Policy
@@ -95,9 +155,45 @@ public static class HostingExtensions {
 		authenticationBuilder.AddPolicyScheme(dynamicScheme, "Dynamic Authentication Selector", options => {
 			options.ForwardDefaultSelector = context => {
 				// Check header-based schemes first (API keys, etc.)
+				// This includes both statically registered headers and dynamic resolver headers
 				foreach (var (headerName, scheme) in registeredSchemes.HeaderSchemes) {
 					if (context.Request.Headers.ContainsKey(headerName)) {
 						return scheme;
+					}
+				}
+
+				// Also check headers from the dynamic resolver if available
+				var resolver = context.RequestServices.GetService<IApiKeyClientResolver>();
+				if (resolver is not null) {
+					foreach (var headerName in resolver.SupportedHeaders) {
+						if (context.Request.Headers.ContainsKey(headerName)) {
+							// Ensure the scheme is registered
+							var scheme = $"Header:{headerName}";
+							if (!registeredSchemes.HeaderSchemes.ContainsKey(headerName)) {
+								// Dynamically register this header scheme
+								registeredSchemes.RegisterHeaderScheme(headerName, scheme);
+							}
+							return scheme;
+						}
+					}
+				}
+
+				// Check for signed request authentication
+				// Requires all three headers: X-Client-Id, X-Timestamp, and X-Signature
+				var signedRequestResolver = context.RequestServices.GetService<ISignedRequestClientResolver>();
+				if (signedRequestResolver is not null) {
+					var options = context.RequestServices.GetService<IOptions<SignatureValidationOptions>>()?.Value
+						?? new SignatureValidationOptions();
+
+					if (context.Request.Headers.ContainsKey(options.ClientIdHeaderName) &&
+						context.Request.Headers.ContainsKey(options.TimestampHeaderName) &&
+						context.Request.Headers.ContainsKey(options.SignatureHeaderName)) {
+						// Route to the SignedRequest scheme
+						foreach (var customScheme in registeredSchemes.CustomSchemes) {
+							if (customScheme.Equals("SignedRequest", StringComparison.OrdinalIgnoreCase)) {
+								return customScheme;
+							}
+						}
 					}
 				}
 
@@ -142,6 +238,18 @@ public static class HostingExtensions {
 		authorizationBuilder.AddCorePolicies(dynamicScheme);
 
 		return authorizationBuilder;
+	}
+
+	private static void RegisterCoreApiKeyServices(IServiceCollection services) {
+		// Register validation options with defaults
+		services.TryAddSingleton(Options.Create(new ApiKeyValidationOptions()));
+		services.TryAddSingleton(Options.Create(new ApiKeyCachingOptions()));
+
+		// Register validator
+		services.TryAddSingleton<IApiKeyValidator, DefaultApiKeyValidator>();
+
+		// Ensure memory cache is available for caching scenarios
+		services.AddMemoryCache();
 	}
 
 	private static void AddCorePolicies(
@@ -194,4 +302,5 @@ public static class HostingExtensions {
 			ApplicationRoles.AppSystemRole,
 			ApplicationRoles.AppAdminRole);
 	}
+
 }

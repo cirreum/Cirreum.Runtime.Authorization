@@ -5,8 +5,20 @@
 		<PackageTags>cirreum;runtime;server;authentication;authorization</PackageTags>
 	</PropertyGroup>
 
-	<ItemGroup>
+	<!-- Use project references for local development -->
+	<ItemGroup Condition="'$(IsLocalBuild)' == 'true'">
+		<ProjectReference Include="..\..\..\..\Infrastructure\Cirreum.Authorization.ApiKey\src\Cirreum.Authorization.ApiKey\Cirreum.Authorization.ApiKey.csproj" />
+		<ProjectReference Include="..\..\..\..\Infrastructure\Cirreum.Authorization.SignedRequest\src\Cirreum.Authorization.SignedRequest\Cirreum.Authorization.SignedRequest.csproj" />
+		<ProjectReference Include="..\..\..\..\Core\Cirreum.AuthorizationProvider\src\Cirreum.AuthorizationProvider\Cirreum.AuthorizationProvider.csproj" />
+	</ItemGroup>
+
+	<!-- Use package references for CI/CD -->
+	<ItemGroup Condition="'$(IsLocalBuild)' != 'true'">
 		<PackageReference Include="Cirreum.Authorization.ApiKey" Version="1.0.1" />
+		<PackageReference Include="Cirreum.Authorization.SignedRequest" Version="1.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="Cirreum.Core" Version="1.0.21" />
 		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.6" />
 		<PackageReference Include="Cirreum.Runtime.AuthorizationProvider" Version="1.0.5" />
