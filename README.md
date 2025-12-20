@@ -88,7 +88,7 @@ builder
     })
     .AddPolicy("ExternalPartner", policy => {
         policy
-            .AddAuthenticationSchemes("SignedRequest")
+            .AddAuthenticationSchemes(SignedRequestDefaults.AuthenticationScheme)
             .RequireAuthenticatedUser()
             .RequireRole("partner");
     });
