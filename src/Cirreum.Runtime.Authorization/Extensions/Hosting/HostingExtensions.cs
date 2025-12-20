@@ -18,6 +18,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IO;
 using Microsoft.Net.Http.Headers;
 
 public static class HostingExtensions {
@@ -79,6 +80,9 @@ public static class HostingExtensions {
 		// Mark as registered
 		builder.Services.MarkTypeAsRegistered<ConfigureAuthorizationMarker>();
 
+		// Ensure we have a recyclable memory stream manager for efficient stream handling
+		builder.Services.TryAddSingleton<RecyclableMemoryStreamManager>();
+
 		// Create a new authorization builder
 		var authorizationBuilder = builder.Services.AddAuthorizationBuilder();
 
@@ -117,6 +121,7 @@ public static class HostingExtensions {
 		// Store the authentication builder for extension methods to use
 		builder.Services.AddSingleton(authenticationBuilder);
 
+
 		//
 		// Register Authorization Providers...
 		//
@@ -138,31 +143,28 @@ public static class HostingExtensions {
 		RegisterCoreApiKeyServices(builder.Services);
 
 		// Register the default configuration-based resolver if not already registered
-		// This enables backward compatibility - apps that don't call UseConfiguredApiKeys
-		// will still work with their configured keys
+		// This enables backward compatibility will still work with configured keys
 		builder.Services.TryAddSingleton<IApiKeyClientResolver>(sp => {
 			var registry = sp.GetRequiredService<ApiKeyClientRegistry>();
 			var validator = sp.GetRequiredService<IApiKeyValidator>();
-			var options = sp.GetRequiredService<IOptions<ApiKeyValidationOptions>>();
 			var logger = sp.GetRequiredService<ILogger<ConfigurationApiKeyClientResolver>>();
-			return new ConfigurationApiKeyClientResolver(registry, validator, options, logger);
+			return new ConfigurationApiKeyClientResolver(registry, validator, logger);
 		});
 
 		//
 		// Register Scheme Policy
 		//
-
 		authenticationBuilder.AddPolicyScheme(dynamicScheme, "Dynamic Authentication Selector", options => {
 			options.ForwardDefaultSelector = context => {
-				// Check header-based schemes first (API keys, etc.)
-				// This includes both statically registered headers and dynamic resolver headers
+
+				// Check statically registered header-based schemes (API keys from configuration)
 				foreach (var (headerName, scheme) in registeredSchemes.HeaderSchemes) {
 					if (context.Request.Headers.ContainsKey(headerName)) {
 						return scheme;
 					}
 				}
 
-				// Also check headers from the dynamic resolver if available
+				// Check headers from dynamic resolver (database-backed API keys)
 				var resolver = context.RequestServices.GetService<IApiKeyClientResolver>();
 				if (resolver is not null) {
 					foreach (var headerName in resolver.SupportedHeaders) {
@@ -182,20 +184,18 @@ public static class HostingExtensions {
 				// Requires all three headers: X-Client-Id, X-Timestamp, and X-Signature
 				var signedRequestResolver = context.RequestServices.GetService<ISignedRequestClientResolver>();
 				if (signedRequestResolver is not null) {
-					var options = context.RequestServices.GetService<IOptions<SignatureValidationOptions>>()?.Value
+					var signatureOptions =
+						context.RequestServices.GetService<IOptions<SignatureValidationOptions>>()?.Value
 						?? new SignatureValidationOptions();
 
-					if (context.Request.Headers.ContainsKey(options.ClientIdHeaderName) &&
-						context.Request.Headers.ContainsKey(options.TimestampHeaderName) &&
-						context.Request.Headers.ContainsKey(options.SignatureHeaderName)) {
-						// Route to the SignedRequest scheme
-						foreach (var customScheme in registeredSchemes.CustomSchemes) {
-							if (customScheme.Equals("SignedRequest", StringComparison.OrdinalIgnoreCase)) {
-								return customScheme;
-							}
-						}
+					if (context.Request.Headers.ContainsKey(signatureOptions.ClientIdHeaderName) &&
+						context.Request.Headers.ContainsKey(signatureOptions.TimestampHeaderName) &&
+						context.Request.Headers.ContainsKey(signatureOptions.SignatureHeaderName)) {
+						return SignedRequestDefaults.AuthenticationScheme;
 					}
+
 				}
+
 
 				// JWT Bearer token routing by audience
 				string? authValue = context.Request.Headers[HeaderNames.Authorization];
@@ -241,6 +241,13 @@ public static class HostingExtensions {
 	}
 
 	private static void RegisterCoreApiKeyServices(IServiceCollection services) {
+
+		// Ensure ApiKeyClientRegistry is registered even if no ApiKeys are configured.
+		// This is needed because IApiKeyClientResolver depends on it, and the registry
+		// may not be created if RegisterAuthorizationProvider returns early due to
+		// no static ApiKey instances included in appsettings.
+		_ = services.GetApiKeyClientRegistry();
+
 		// Register validation options with defaults
 		services.TryAddSingleton(Options.Create(new ApiKeyValidationOptions()));
 		services.TryAddSingleton(Options.Create(new ApiKeyCachingOptions()));
@@ -250,6 +257,7 @@ public static class HostingExtensions {
 
 		// Ensure memory cache is available for caching scenarios
 		services.AddMemoryCache();
+
 	}
 
 	private static void AddCorePolicies(

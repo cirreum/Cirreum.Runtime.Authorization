@@ -37,8 +37,8 @@ public static class SignedRequestAuthorizationBuilderExtensions {
 	/// </list>
 	/// </para>
 	/// <para>
-	/// Use the scheme "SignedRequest" in your policies:
-	/// <c>.AddAuthenticationSchemes("SignedRequest")</c>
+	/// Use the scheme <see cref="SignedRequestDefaults.AuthenticationScheme"/> in your policies:
+	/// <c>.AddAuthenticationSchemes(SignedRequestDefaults.AuthenticationScheme)</c>
 	/// </para>
 	/// </remarks>
 	/// <example>
@@ -50,7 +50,7 @@ public static class SignedRequestAuthorizationBuilderExtensions {
 	///     })
 	///     .AddPolicy("PartnerAccess", policy => {
 	///         policy
-	///             .AddAuthenticationSchemes("SignedRequest")
+	///             .AddAuthenticationSchemes(SignedRequestDefaults.AuthenticationScheme)
 	///             .RequireAuthenticatedUser()
 	///             .RequireRole("partner");
 	///     });
@@ -76,10 +76,9 @@ public static class SignedRequestAuthorizationBuilderExtensions {
 		// Configure validation options
 		if (options.ValidationConfiguration is not null) {
 			services.Configure(options.ValidationConfiguration);
-		}
-		else {
+		} else {
 			// Register default options
-			services.TryAddSingleton(Microsoft.Extensions.Options.Options.Create(new SignatureValidationOptions()));
+			services.TryAddSingleton(Extensions.Options.Options.Create(new SignatureValidationOptions()));
 		}
 
 		// Register core services
@@ -91,7 +90,7 @@ public static class SignedRequestAuthorizationBuilderExtensions {
 		services.TryAddScoped<ISignedRequestClientResolver>(sp => sp.GetRequiredService<TResolver>());
 
 		// Register authentication handler
-		RegisterSignedRequestScheme(services, options.SchemeName);
+		RegisterSignedRequestScheme(services);
 
 		return builder;
 	}
@@ -118,7 +117,8 @@ public static class SignedRequestAuthorizationBuilderExtensions {
 		return builder;
 	}
 
-	private static void RegisterSignedRequestScheme(IServiceCollection services, string schemeName) {
+	private static void RegisterSignedRequestScheme(IServiceCollection services) {
+
 		// Get the authentication builder that was stored during AddAuthorization
 		var authBuilderDescriptor = services.FirstOrDefault(d =>
 			d.ServiceType == typeof(AuthenticationBuilder) &&
@@ -132,11 +132,12 @@ public static class SignedRequestAuthorizationBuilderExtensions {
 
 		// Register the authentication handler
 		authBuilder.AddScheme<SignedRequestAuthenticationOptions, SignedRequestAuthenticationHandler>(
-			schemeName,
-			options => { options.SchemeName = schemeName; });
+			authenticationScheme: SignedRequestDefaults.AuthenticationScheme, null, null);
 
 		// Register the scheme in the registry for dynamic selection
 		var schemeRegistry = services.GetAuthorizationSchemeRegistry();
-		schemeRegistry.RegisterCustomScheme(schemeName);
+		schemeRegistry.RegisterCustomScheme(SignedRequestDefaults.AuthenticationScheme);
+
 	}
+
 }

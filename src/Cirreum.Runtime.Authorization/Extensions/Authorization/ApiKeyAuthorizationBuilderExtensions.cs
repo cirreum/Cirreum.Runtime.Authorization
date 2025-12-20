@@ -3,7 +3,6 @@ namespace Microsoft.AspNetCore.Authorization;
 using Cirreum.Authorization;
 using Cirreum.AuthorizationProvider;
 using Cirreum.AuthorizationProvider.ApiKey;
-using Cirreum.AuthorizationProvider.ApiKey.Configuration;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Caching.Memory;
@@ -108,6 +107,7 @@ public static class ApiKeyAuthorizationBuilderExtensions {
 	}
 
 	private static void RegisterDynamicHeaders(IServiceCollection services, string[] headers) {
+
 		// Get the authentication builder that was stored during AddAuthorization
 		var authBuilderDescriptor = services.FirstOrDefault(d =>
 			d.ServiceType == typeof(AuthenticationBuilder) &&
@@ -154,7 +154,7 @@ public static class ApiKeyAuthorizationBuilderExtensions {
 		}
 
 		// Register composite resolver: config first, then dynamic
-		services.AddSingleton<IApiKeyClientResolver>(sp => {
+		services.AddScoped(sp => {
 			var resolvers = new List<IApiKeyClientResolver>();
 
 			// 1. Configuration-based resolver first (fast, in-memory)
@@ -163,7 +163,6 @@ public static class ApiKeyAuthorizationBuilderExtensions {
 				var configResolver = new ConfigurationApiKeyClientResolver(
 					registry,
 					sp.GetRequiredService<IApiKeyValidator>(),
-					sp.GetRequiredService<IOptions<ApiKeyValidationOptions>>(),
 					sp.GetRequiredService<ILogger<ConfigurationApiKeyClientResolver>>());
 				resolvers.Add(configResolver);
 			}
