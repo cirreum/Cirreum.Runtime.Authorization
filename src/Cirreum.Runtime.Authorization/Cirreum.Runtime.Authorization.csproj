@@ -6,7 +6,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Cirreum.Core" Version="1.0.23" />
+		<PackageReference Include="Cirreum.Core" Version="1.0.26" />
 		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.9" />
 		<PackageReference Include="Cirreum.Authorization.ApiKey" Version="1.0.5" />
 		<PackageReference Include="Cirreum.Authorization.SignedRequest" Version="1.0.3" />
