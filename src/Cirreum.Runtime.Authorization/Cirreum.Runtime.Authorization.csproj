@@ -1,16 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
+		<RootNamespace>Cirreum.Authorization</RootNamespace>
 		<Description>The Runtime Authorization configuration.</Description>
 		<PackageTags>cirreum;runtime;server;authentication;authorization</PackageTags>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Cirreum.Core" Version="1.0.36" />
-		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.10" />
-		<PackageReference Include="Cirreum.Authorization.ApiKey" Version="1.0.5" />
-		<PackageReference Include="Cirreum.Authorization.SignedRequest" Version="1.0.3" />
-		<PackageReference Include="Cirreum.Runtime.AuthorizationProvider" Version="1.0.8" />
+		<PackageReference Include="Cirreum.Core" Version="1.0.37" />
+		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.11" />
+		<PackageReference Include="Cirreum.Authorization.External" Version="1.0.0" />
+		<PackageReference Include="Cirreum.Authorization.ApiKey" Version="1.0.6" />
+		<PackageReference Include="Cirreum.Authorization.SignedRequest" Version="1.0.4" />
+		<PackageReference Include="Cirreum.Runtime.AuthorizationProvider" Version="1.0.9" />
 	</ItemGroup>
 
 </Project>

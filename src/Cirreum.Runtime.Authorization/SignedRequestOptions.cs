@@ -1,4 +1,6 @@
-namespace Cirreum.AuthorizationProvider.SignedRequest;
+namespace Cirreum.Authorization;
+
+using Cirreum.AuthorizationProvider.SignedRequest;
 
 /// <summary>
 /// Options for configuring signed request authentication registration.
