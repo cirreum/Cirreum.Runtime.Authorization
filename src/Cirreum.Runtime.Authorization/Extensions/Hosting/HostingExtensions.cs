@@ -155,11 +155,11 @@ public static class HostingExtensions {
 			ExternalAuthorizationSettings,
 			ExternalAuthorizationInstanceSettings>(authenticationBuilder);
 
-		// Register core API key services for the new resolver pattern
+		// Register core API key services for the Dynamic ApiKey resolver
 		RegisterCoreApiKeyServices(builder.Services);
 
 		// Register the default configuration-based resolver if not already registered
-		// This enables backward compatibility will still work with configured keys
+		// This is so we can support both static (config) and dynamic (db) API keys
 		builder.Services.TryAddSingleton<IApiKeyClientResolver>(sp => {
 			var registry = sp.GetRequiredService<ApiKeyClientRegistry>();
 			var validator = sp.GetRequiredService<IApiKeyValidator>();
