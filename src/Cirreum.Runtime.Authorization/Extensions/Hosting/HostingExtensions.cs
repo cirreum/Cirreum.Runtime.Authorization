@@ -2,11 +2,12 @@
 
 using Cirreum;
 using Cirreum.Authorization;
+using Cirreum.Authorization.ApiKey;
+using Cirreum.Authorization.ApiKey.Configuration;
 using Cirreum.Authorization.Configuration;
 using Cirreum.Authorization.External;
 using Cirreum.AuthorizationProvider;
 using Cirreum.AuthorizationProvider.ApiKey;
-using Cirreum.AuthorizationProvider.ApiKey.Configuration;
 using Cirreum.AuthorizationProvider.SignedRequest;
 using Cirreum.Providers;
 

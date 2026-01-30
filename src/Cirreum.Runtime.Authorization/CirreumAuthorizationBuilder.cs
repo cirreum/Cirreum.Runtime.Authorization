@@ -1,6 +1,8 @@
 namespace Cirreum.Authorization;
 
+using Cirreum.Authorization.ApiKey;
 using Cirreum.Authorization.External;
+using Cirreum.Authorization.SignedRequest;
 using Cirreum.AuthorizationProvider;
 using Cirreum.AuthorizationProvider.ApiKey;
 using Cirreum.AuthorizationProvider.SignedRequest;
@@ -56,8 +58,8 @@ public sealed class CirreumAuthorizationBuilder {
 	internal CirreumAuthorizationBuilder(
 		IServiceCollection services,
 		AuthorizationBuilder authorizationBuilder) {
-		Services = services;
-		AuthorizationBuilder = authorizationBuilder;
+		this.Services = services;
+		this.AuthorizationBuilder = authorizationBuilder;
 	}
 
 	/// <summary>
@@ -106,10 +108,10 @@ public sealed class CirreumAuthorizationBuilder {
 		where TResolver : class, ISignedRequestClientResolver {
 
 		// Check if already registered
-		if (Services.IsMarkerTypeRegistered<SignedRequestMarker>()) {
+		if (this.Services.IsMarkerTypeRegistered<SignedRequestMarker>()) {
 			return this;
 		}
-		Services.MarkTypeAsRegistered<SignedRequestMarker>();
+		this.Services.MarkTypeAsRegistered<SignedRequestMarker>();
 
 		// Build options
 		var options = new SignedRequestOptions();
@@ -117,22 +119,22 @@ public sealed class CirreumAuthorizationBuilder {
 
 		// Configure validation options
 		if (options.ValidationConfiguration is not null) {
-			Services.Configure(options.ValidationConfiguration);
+			this.Services.Configure(options.ValidationConfiguration);
 		} else {
 			// Register default options
-			Services.TryAddSingleton(Options.Create(new SignatureValidationOptions()));
+			this.Services.TryAddSingleton(Options.Create(new SignatureValidationOptions()));
 		}
 
 		// Register core services
-		Services.TryAddSingleton<ISignatureValidator, DefaultSignatureValidator>();
-		Services.TryAddSingleton<ISignatureValidationEvents>(NullSignatureValidationEvents.Instance);
+		this.Services.TryAddSingleton<ISignatureValidator, DefaultSignatureValidator>();
+		this.Services.TryAddSingleton<ISignatureValidationEvents>(NullSignatureValidationEvents.Instance);
 
 		// Register the custom resolver
-		Services.TryAddScoped<TResolver>();
-		Services.TryAddScoped<ISignedRequestClientResolver>(sp => sp.GetRequiredService<TResolver>());
+		this.Services.TryAddScoped<TResolver>();
+		this.Services.TryAddScoped<ISignedRequestClientResolver>(sp => sp.GetRequiredService<TResolver>());
 
 		// Register authentication handler
-		RegisterSignedRequestScheme();
+		this.RegisterSignedRequestScheme();
 
 		return this;
 	}
@@ -147,13 +149,13 @@ public sealed class CirreumAuthorizationBuilder {
 		where TEvents : class, ISignatureValidationEvents {
 
 		// Remove the null implementation if registered
-		var existing = Services.FirstOrDefault(d =>
+		var existing = this.Services.FirstOrDefault(d =>
 			d.ServiceType == typeof(ISignatureValidationEvents));
 		if (existing is not null) {
-			Services.Remove(existing);
+			this.Services.Remove(existing);
 		}
 
-		Services.AddScoped<ISignatureValidationEvents, TEvents>();
+		this.Services.AddScoped<ISignatureValidationEvents, TEvents>();
 		return this;
 	}
 
@@ -210,10 +212,10 @@ public sealed class CirreumAuthorizationBuilder {
 		}
 
 		// Check if already registered
-		if (Services.IsMarkerTypeRegistered<ApiKeyDynamicMarker>()) {
+		if (this.Services.IsMarkerTypeRegistered<ApiKeyDynamicMarker>()) {
 			return this;
 		}
-		Services.MarkTypeAsRegistered<ApiKeyDynamicMarker>();
+		this.Services.MarkTypeAsRegistered<ApiKeyDynamicMarker>();
 
 		// Build options
 		var options = new DynamicApiKeyOptions();
@@ -221,22 +223,22 @@ public sealed class CirreumAuthorizationBuilder {
 
 		// Apply validation configuration if provided
 		if (options.ValidationConfiguration is not null) {
-			Services.Configure(options.ValidationConfiguration);
+			this.Services.Configure(options.ValidationConfiguration);
 		}
 
 		// Apply caching configuration if provided
 		if (options.CachingEnabled && options.CachingConfiguration is not null) {
-			Services.Configure(options.CachingConfiguration);
+			this.Services.Configure(options.CachingConfiguration);
 		}
 
 		// Register the custom resolver type
-		Services.TryAddScoped<TResolver>();
+		this.Services.TryAddScoped<TResolver>();
 
 		// Remove the default configuration-only resolver and replace with composite
-		ReplaceResolverWithComposite<TResolver>(options);
+		this.ReplaceResolverWithComposite<TResolver>(options);
 
 		// Register authentication handlers for the specified headers
-		RegisterDynamicHeaders(headers);
+		this.RegisterDynamicHeaders(headers);
 
 		return this;
 	}
@@ -287,13 +289,13 @@ public sealed class CirreumAuthorizationBuilder {
 		where TResolver : class, IExternalTenantResolver {
 
 		// Check if resolver is already registered
-		if (Services.IsMarkerTypeRegistered<ExternalResolverMarker>()) {
+		if (this.Services.IsMarkerTypeRegistered<ExternalResolverMarker>()) {
 			return this;
 		}
-		Services.MarkTypeAsRegistered<ExternalResolverMarker>();
+		this.Services.MarkTypeAsRegistered<ExternalResolverMarker>();
 
 		// Verify the External authentication handler was registered by the registrar
-		var optionsDescriptor = Services.FirstOrDefault(d =>
+		var optionsDescriptor = this.Services.FirstOrDefault(d =>
 			d.ServiceType == typeof(ExternalAuthenticationOptions))
 			?? throw new InvalidOperationException(
 				"AddExternal requires External authentication to be configured in appsettings.json. " +
@@ -311,8 +313,8 @@ public sealed class CirreumAuthorizationBuilder {
 		}
 
 		// Register the tenant resolver
-		Services.TryAddScoped<TResolver>();
-		Services.TryAddScoped<IExternalTenantResolver>(sp => sp.GetRequiredService<TResolver>());
+		this.Services.TryAddScoped<TResolver>();
+		this.Services.TryAddScoped<IExternalTenantResolver>(sp => sp.GetRequiredService<TResolver>());
 
 		return this;
 	}
@@ -320,7 +322,7 @@ public sealed class CirreumAuthorizationBuilder {
 	private void RegisterSignedRequestScheme() {
 
 		// Get the authentication builder that was stored during AddAuthorization
-		var authBuilderDescriptor = Services.FirstOrDefault(d =>
+		var authBuilderDescriptor = this.Services.FirstOrDefault(d =>
 			d.ServiceType == typeof(AuthenticationBuilder) &&
 			d.ImplementationInstance is not null);
 
@@ -335,7 +337,7 @@ public sealed class CirreumAuthorizationBuilder {
 			authenticationScheme: SignedRequestDefaults.AuthenticationScheme, null, null);
 
 		// Register the scheme in the registry for dynamic selection
-		var schemeRegistry = Services.GetAuthorizationSchemeRegistry();
+		var schemeRegistry = this.Services.GetAuthorizationSchemeRegistry();
 		schemeRegistry.RegisterCustomScheme(SignedRequestDefaults.AuthenticationScheme);
 
 	}
@@ -343,7 +345,7 @@ public sealed class CirreumAuthorizationBuilder {
 	private void RegisterDynamicHeaders(string[] headers) {
 
 		// Get the authentication builder that was stored during AddAuthorization
-		var authBuilderDescriptor = Services.FirstOrDefault(d =>
+		var authBuilderDescriptor = this.Services.FirstOrDefault(d =>
 			d.ServiceType == typeof(AuthenticationBuilder) &&
 			d.ImplementationInstance is not null);
 
@@ -354,7 +356,7 @@ public sealed class CirreumAuthorizationBuilder {
 		}
 
 		// Get the scheme registry
-		var schemeRegistry = Services.GetAuthorizationSchemeRegistry();
+		var schemeRegistry = this.Services.GetAuthorizationSchemeRegistry();
 
 		// Register each header
 		foreach (var headerName in headers) {
@@ -379,14 +381,14 @@ public sealed class CirreumAuthorizationBuilder {
 		where TResolver : class, IApiKeyClientResolver {
 
 		// Remove any existing IApiKeyClientResolver registration
-		var existingDescriptor = Services.FirstOrDefault(d =>
+		var existingDescriptor = this.Services.FirstOrDefault(d =>
 			d.ServiceType == typeof(IApiKeyClientResolver));
 		if (existingDescriptor is not null) {
-			Services.Remove(existingDescriptor);
+			this.Services.Remove(existingDescriptor);
 		}
 
 		// Register composite resolver: config first, then dynamic
-		Services.AddScoped(sp => {
+		this.Services.AddScoped(sp => {
 			var resolvers = new List<IApiKeyClientResolver>();
 
 			// 1. Configuration-based resolver first (fast, in-memory)
