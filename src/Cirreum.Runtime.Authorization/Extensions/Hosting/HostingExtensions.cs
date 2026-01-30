@@ -106,12 +106,11 @@ public static class HostingExtensions {
 		ProviderContext.SetRuntimeType(providerType);
 
 		// Resolve primary scheme - used exclusively for the System policy
-		// This must be a configured Entra instance name (e.g., "WorkforceUsers")
 		var primaryScheme = builder.Configuration.GetValue<string>("Cirreum:Authorization:PrimaryScheme");
 		if (string.IsNullOrWhiteSpace(primaryScheme)) {
 			throw new InvalidOperationException(
 				"Missing required 'Cirreum:Authorization:PrimaryScheme' configuration. " +
-				"This must be set to one of your configured Entra instance names.");
+				"This must be set to one of your configured authentication scheme names.");
 		}
 
 		// Get the registry using the helper method
@@ -170,6 +169,13 @@ public static class HostingExtensions {
 		// Register the ambiguous request rejection scheme
 		authenticationBuilder.AddScheme<AmbiguousRequestAuthenticationOptions, AmbiguousRequestAuthenticationHandler>(
 			AuthorizationSchemes.Ambiguous, null);
+
+		// Ensure primary scheme is registered
+		if (!registeredSchemes.Schemes.Contains(primaryScheme, StringComparer.OrdinalIgnoreCase)) {
+			throw new InvalidOperationException(
+				$"PrimaryScheme '{primaryScheme}' is not a registered authentication scheme. " +
+				$"Available schemes: {string.Join(", ", registeredSchemes.Schemes)}");
+		}
 
 		//
 		// Register Scheme Policy
