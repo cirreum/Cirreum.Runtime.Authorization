@@ -170,6 +170,10 @@ public static class HostingExtensions {
 		authenticationBuilder.AddScheme<AmbiguousRequestAuthenticationOptions, AmbiguousRequestAuthenticationHandler>(
 			AuthorizationSchemes.Ambiguous, null);
 
+		// Register the anonymous request scheme (returns NoResult for requests with no credentials)
+		authenticationBuilder.AddScheme<AuthenticationSchemeOptions, AnonymousAuthenticationHandler>(
+			AuthorizationSchemes.Anonymous, null);
+
 		// Ensure primary scheme is registered
 		if (!registeredSchemes.Schemes.Contains(primaryScheme, StringComparer.OrdinalIgnoreCase)) {
 			throw new InvalidOperationException(
@@ -271,9 +275,9 @@ public static class HostingExtensions {
 				}
 
 				// 7. No authentication indicators present - allow anonymous
-				// Return null to skip authentication entirely, letting [AllowAnonymous]
+				// Return the Anonymous scheme which returns NoResult(), letting [AllowAnonymous]
 				// endpoints work without triggering authentication failure
-				return null;
+				return AuthorizationSchemes.Anonymous;
 			};
 		});
 

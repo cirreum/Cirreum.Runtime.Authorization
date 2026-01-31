@@ -15,7 +15,7 @@
 ### Key Features
 
 - **Dynamic scheme selection** - Automatically routes to the correct authentication handler based on request characteristics
-- **Fail-closed design** - Rejects requests that don't match any configured provider
+- **Fail-closed design** - Rejects requests with unrecognized or conflicting credentials
 - **Conflict detection** - Rejects ambiguous requests with multiple authentication indicators
 - **Multi-provider support** - Entra, API Key, Signed Request, and External (BYOID)
 - **Cross-scheme policies** - Role-based authorization that works across all authentication types
@@ -67,7 +67,7 @@ Endpoint has [Authorize] or .RequireAuthorization()?
                            Policy requirements checked (roles, claims)
 ```
 
-**Important:** Authentication only occurs when an endpoint requires authorization. Anonymous endpoints never trigger scheme selection.
+**Important:** The authentication middleware runs on every request due to the default scheme configuration. For requests without credentials, the `Anonymous` scheme returns `NoResult()`, allowing unauthenticated access to endpoints that don't require authorization.
 
 ### Dynamic Scheme Selection
 
@@ -317,6 +317,8 @@ builder.AddAuthorization()
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `AuthorizationSchemes.Dynamic` | `DynamicScheme` | Routes to appropriate handler based on request |
+| `AuthorizationSchemes.Anonymous` | `Anonymous` | Returns `NoResult()` for requests with no credentials |
+| `AuthorizationSchemes.Ambiguous` | `AmbiguousRequest` | Rejects requests with unrecognized/conflicting credentials |
 | `ExternalDefaults.AuthenticationScheme` | `Byoid` | External (BYOID) authentication only |
 | `SignedRequestDefaults.AuthenticationScheme` | `SignedRequest` | Signed request authentication only |
 | `"Header:{HeaderName}"` | e.g., `Header:X-Api-Key` | API key authentication for specific header |
@@ -350,7 +352,7 @@ This prevents credential confusion attacks where tokens or keys might accidental
 - **Authentication** (who are you?) - Only triggered when an endpoint requires authorization
 - **Authorization** (what can you do?) - Policy requirements checked after authentication
 
-Anonymous endpoints (`[AllowAnonymous]`) bypass the entire authentication system.
+Anonymous endpoints (`[AllowAnonymous]`) or endpoints without `[Authorize]` proceed when no credentials are present, as the `Anonymous` scheme returns `NoResult()` rather than failing.
 
 ### Scheme Priority
 

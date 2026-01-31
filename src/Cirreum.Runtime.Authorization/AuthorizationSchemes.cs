@@ -55,4 +55,13 @@ public static class AuthorizationSchemes {
 	/// </remarks>
 	public const string Ambiguous = "AmbiguousRequest";
 
+	/// <summary>
+	/// The authentication scheme used when no authentication indicators are present.
+	/// </summary>
+	/// <remarks>
+	/// Returns <see cref="Microsoft.AspNetCore.Authentication.AuthenticateResult.NoResult()"/>,
+	/// allowing <c>[AllowAnonymous]</c> endpoints to proceed without authentication failure.
+	/// </remarks>
+	public const string Anonymous = "Anonymous";
+
 }
