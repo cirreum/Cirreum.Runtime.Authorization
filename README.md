@@ -79,10 +79,11 @@ The `ForwardDefaultSelector` examines request characteristics and routes to the 
 3. Signed Request     → All 3 headers?        → Signed Request handler
 4. External (BYOID)   → Tenant + Bearer?      → External handler
 5. JWT Bearer         → Bearer token?         → Entra handler (by audience)
-6. No match           → Nothing matched       → Reject (401)
+                      → Unrecognized audience → Reject (401)
+6. No credentials     → Nothing present       → Skip (anonymous allowed)
 ```
 
-**Note:** There is no silent fallback. If the selector cannot determine the appropriate scheme, the request is rejected. This fail-closed behavior prevents credentials from being evaluated by an unrelated handler.
+**Note:** There is no silent fallback. If the selector detects authentication credentials but cannot determine the appropriate scheme, the request is rejected. This fail-closed behavior prevents credentials from being evaluated by an unrelated handler. Requests with no authentication indicators are allowed through for anonymous endpoints.
 
 ### Conflict Detection
 
@@ -316,7 +317,7 @@ builder.AddAuthorization()
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `AuthorizationSchemes.Dynamic` | `DynamicScheme` | Routes to appropriate handler based on request |
-| `ExternalDefaults.AuthenticationScheme` | `byoid` | External (BYOID) authentication only |
+| `ExternalDefaults.AuthenticationScheme` | `Byoid` | External (BYOID) authentication only |
 | `SignedRequestDefaults.AuthenticationScheme` | `SignedRequest` | Signed request authentication only |
 | `"Header:{HeaderName}"` | e.g., `Header:X-Api-Key` | API key authentication for specific header |
 
@@ -329,18 +330,18 @@ builder.AddAuthorization()
 | `X-Client-Id` + `X-Timestamp` + `X-Signature` | Signed Request handler |
 | `X-Tenant-Slug` + `Authorization: Bearer` | External (BYOID) handler |
 | `Authorization: Bearer` (recognized audience) | Entra handler |
-| `Authorization: Bearer` (unrecognized audience) | **Rejected** (no match) |
-| No credentials | **Rejected** (no match) |
+| `Authorization: Bearer` (unrecognized audience) | **Rejected** (ambiguous) |
+| No credentials | **Skipped** (anonymous allowed) |
 
 ## Security Considerations
 
 ### Fail-Closed Design
 
-The dynamic selector **never** silently falls back to an unrelated scheme:
+The dynamic selector **never** silently falls back to an unrelated scheme when credentials are present:
 
 - **Unrecognized JWT audience** → Rejected (not sent to random Entra instance)
-- **No matching credentials** → Rejected (not sent to "default" scheme)
 - **Conflicting indicators** → Rejected (not guessed)
+- **No credentials at all** → Skipped (allows anonymous endpoints to work)
 
 This prevents credential confusion attacks where tokens or keys might accidentally be validated by the wrong handler.
 

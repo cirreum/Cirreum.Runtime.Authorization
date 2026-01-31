@@ -265,11 +265,15 @@ public static class HostingExtensions {
 							}
 						}
 					}
+
+					// Has Authorization header but no scheme matched - reject as ambiguous
+					return AuthorizationSchemes.Ambiguous;
 				}
 
-				// 7. No matching scheme - reject the request
-				// This prevents silent fallback to an unrelated scheme
-				return AuthorizationSchemes.Ambiguous;
+				// 7. No authentication indicators present - allow anonymous
+				// Return null to skip authentication entirely, letting [AllowAnonymous]
+				// endpoints work without triggering authentication failure
+				return null;
 			};
 		});
 
