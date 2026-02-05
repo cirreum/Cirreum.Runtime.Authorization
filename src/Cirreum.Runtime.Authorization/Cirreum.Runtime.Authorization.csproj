@@ -7,9 +7,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Cirreum.Core" Version="1.0.39" />
+		<PackageReference Include="Cirreum.Core" Version="1.0.40" />
 		<PackageReference Include="Cirreum.Authorization.Entra" Version="1.0.11" />
-		<PackageReference Include="Cirreum.Authorization.External" Version="1.0.2" />
+		<PackageReference Include="Cirreum.Authorization.External" Version="1.0.3" />
 		<PackageReference Include="Cirreum.Authorization.ApiKey" Version="1.0.7" />
 		<PackageReference Include="Cirreum.Authorization.SignedRequest" Version="1.0.5" />
 		<PackageReference Include="Cirreum.Runtime.AuthorizationProvider" Version="1.0.9" />
