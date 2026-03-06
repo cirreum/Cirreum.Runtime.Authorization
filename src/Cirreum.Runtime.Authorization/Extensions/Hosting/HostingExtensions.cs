@@ -13,6 +13,7 @@ using Cirreum.Providers;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -255,6 +256,7 @@ public static class HostingExtensions {
 				// 6. JWT Bearer token routing by audience (Entra and other static IdPs)
 				string? authValue = context.Request.Headers[HeaderNames.Authorization];
 				if (!string.IsNullOrEmpty(authValue) && authValue.StartsWith("Bearer ")) {
+
 					var token = authValue["Bearer ".Length..].Trim();
 					var jwtHandler = new JsonWebTokenHandler();
 
@@ -266,6 +268,12 @@ public static class HostingExtensions {
 							var scheme = registeredSchemes.GetSchemeForAudience(audience);
 							if (!string.IsNullOrEmpty(scheme)) {
 								return scheme;
+							}
+
+							// Only reach here on unrecognized audience — rare
+							var endpoint = context.GetEndpoint();
+							if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() is not null) {
+								return AuthorizationSchemes.Anonymous;
 							}
 						}
 					}
