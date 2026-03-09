@@ -14,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 
 /// <summary>
 /// Builder for configuring Cirreum authentication providers within the authorization system.
@@ -36,9 +38,10 @@ using Microsoft.Extensions.Options;
 /// </remarks>
 public sealed class CirreumAuthorizationBuilder {
 
-	private class SignedRequestMarker { }
-	private class ApiKeyDynamicMarker { }
-	private class ExternalResolverMarker { }
+	private class RoleResolverMarker;
+	private class SignedRequestMarker;
+	private class ApiKeyDynamicMarker;
+	private class ExternalResolverMarker;
 
 	/// <summary>
 	/// Gets the service collection for dependency registration.
@@ -63,9 +66,50 @@ public sealed class CirreumAuthorizationBuilder {
 	}
 
 	/// <summary>
+	/// Registers an <see cref="IRoleResolver"/> implementation for role enrichment.
+	/// </summary>
+	/// <typeparam name="TRoleResolver">
+	/// The resolver type that implements <see cref="IRoleResolver"/>.
+	/// </typeparam>
+	/// <returns>The builder for chaining.</returns>
+	/// <remarks>
+	/// <para>
+	/// The resolver is registered as a scoped service. It is invoked by
+	/// <c>AudienceProviderRoleClaimsTransformer</c> during claims transformation
+	/// for any audience-based provider. Calling this method also registers the
+	/// claims transformer, <c>IHttpContextAccessor</c>, and subscribes to
+	/// authorization provider telemetry via OpenTelemetry.
+	/// </para>
+	/// <para>
+	/// The resolver receives the user's external identifier (from <c>oid</c>, <c>sub</c>,
+	/// or <c>user_id</c> claims) and should return the application roles for that user.
+	/// </para>
+	/// </remarks>
+	public CirreumAuthorizationBuilder AddRoleResolver<TRoleResolver>()
+		where TRoleResolver : class, IRoleResolver {
+
+		// Check if already registered
+		if (this.Services.IsMarkerTypeRegistered<RoleResolverMarker>()) {
+			return this;
+		}
+		this.Services.MarkTypeAsRegistered<RoleResolverMarker>();
+
+		this.Services.TryAddScoped<IRoleResolver, TRoleResolver>();
+		this.Services.AddRoleEnrichment();
+
+		// Subscribe to authorization provider telemetry
+		this.Services.AddOpenTelemetry()
+			.WithMetrics(metrics => metrics.AddMeter(AuthorizationDiagnostics.DiagnosticName))
+			.WithTracing(tracing => tracing.AddSource(AuthorizationDiagnostics.DiagnosticName));
+
+		return this;
+
+	}
+
+	/// <summary>
 	/// Adds signed request authentication using a custom resolver (e.g., database-backed).
 	/// </summary>
-	/// <typeparam name="TResolver">
+	/// <typeparam name="TClientResolver">
 	/// The resolver type that implements <see cref="ISignedRequestClientResolver"/>.
 	/// </typeparam>
 	/// <param name="configure">Optional configuration for signature validation.</param>
@@ -103,9 +147,9 @@ public sealed class CirreumAuthorizationBuilder {
 	/// });
 	/// </code>
 	/// </example>
-	public CirreumAuthorizationBuilder AddSignedRequest<TResolver>(
+	public CirreumAuthorizationBuilder AddSignedRequest<TClientResolver>(
 		Action<SignedRequestOptions>? configure = null)
-		where TResolver : class, ISignedRequestClientResolver {
+		where TClientResolver : class, ISignedRequestClientResolver {
 
 		// Check if already registered
 		if (this.Services.IsMarkerTypeRegistered<SignedRequestMarker>()) {
@@ -130,8 +174,8 @@ public sealed class CirreumAuthorizationBuilder {
 		this.Services.TryAddSingleton<ISignatureValidationEvents>(NullSignatureValidationEvents.Instance);
 
 		// Register the custom resolver
-		this.Services.TryAddScoped<TResolver>();
-		this.Services.TryAddScoped<ISignedRequestClientResolver>(sp => sp.GetRequiredService<TResolver>());
+		this.Services.TryAddScoped<TClientResolver>();
+		this.Services.TryAddScoped<ISignedRequestClientResolver>(sp => sp.GetRequiredService<TClientResolver>());
 
 		// Register authentication handler
 		this.RegisterSignedRequestScheme();
@@ -143,10 +187,10 @@ public sealed class CirreumAuthorizationBuilder {
 	/// Adds a custom implementation of <see cref="ISignatureValidationEvents"/> for
 	/// rate limiting, alerting, and other security controls.
 	/// </summary>
-	/// <typeparam name="TEvents">The events implementation type.</typeparam>
+	/// <typeparam name="TValidationEvents">The events implementation type.</typeparam>
 	/// <returns>The builder for chaining.</returns>
-	public CirreumAuthorizationBuilder AddSignatureValidationEvents<TEvents>()
-		where TEvents : class, ISignatureValidationEvents {
+	public CirreumAuthorizationBuilder AddSignatureValidationEvents<TValidationEvents>()
+		where TValidationEvents : class, ISignatureValidationEvents {
 
 		// Remove the null implementation if registered
 		var existing = this.Services.FirstOrDefault(d =>
@@ -155,14 +199,14 @@ public sealed class CirreumAuthorizationBuilder {
 			this.Services.Remove(existing);
 		}
 
-		this.Services.AddScoped<ISignatureValidationEvents, TEvents>();
+		this.Services.AddScoped<ISignatureValidationEvents, TValidationEvents>();
 		return this;
 	}
 
 	/// <summary>
 	/// Adds dynamic API key resolution using a custom resolver (e.g., database-backed).
 	/// </summary>
-	/// <typeparam name="TResolver">
+	/// <typeparam name="TApiKeyResolver">
 	/// The resolver type that implements <see cref="IApiKeyClientResolver"/>.
 	/// </typeparam>
 	/// <param name="headers">The HTTP header names that will contain API keys (e.g., "X-Api-Key").</param>
@@ -201,10 +245,10 @@ public sealed class CirreumAuthorizationBuilder {
 	/// });
 	/// </code>
 	/// </example>
-	public CirreumAuthorizationBuilder AddDynamicApiKeys<TResolver>(
+	public CirreumAuthorizationBuilder AddDynamicApiKeys<TApiKeyResolver>(
 		string[] headers,
 		Action<DynamicApiKeyOptions>? configure = null)
-		where TResolver : class, IApiKeyClientResolver {
+		where TApiKeyResolver : class, IApiKeyClientResolver {
 
 		ArgumentNullException.ThrowIfNull(headers);
 		if (headers.Length == 0) {
@@ -232,10 +276,10 @@ public sealed class CirreumAuthorizationBuilder {
 		}
 
 		// Register the custom resolver type
-		this.Services.TryAddScoped<TResolver>();
+		this.Services.TryAddScoped<TApiKeyResolver>();
 
 		// Remove the default configuration-only resolver and replace with composite
-		this.ReplaceResolverWithComposite<TResolver>(options);
+		this.ReplaceResolverWithComposite<TApiKeyResolver>(options);
 
 		// Register authentication handlers for the specified headers
 		this.RegisterDynamicHeaders(headers);
@@ -246,7 +290,7 @@ public sealed class CirreumAuthorizationBuilder {
 	/// <summary>
 	/// Adds External (BYOID) authentication using a custom tenant resolver.
 	/// </summary>
-	/// <typeparam name="TResolver">
+	/// <typeparam name="TExternalTenantResolver">
 	/// The resolver type that implements <see cref="IExternalTenantResolver"/>.
 	/// </typeparam>
 	/// <param name="configure">Optional configuration for External authentication.</param>
@@ -284,9 +328,9 @@ public sealed class CirreumAuthorizationBuilder {
 	/// <exception cref="InvalidOperationException">
 	/// Thrown when External authentication is not configured in appsettings.json.
 	/// </exception>
-	public CirreumAuthorizationBuilder AddExternal<TResolver>(
+	public CirreumAuthorizationBuilder AddExternalProvider<TExternalTenantResolver>(
 		Action<ExternalOptions>? configure = null)
-		where TResolver : class, IExternalTenantResolver {
+		where TExternalTenantResolver : class, IExternalTenantResolver {
 
 		// Check if resolver is already registered
 		if (this.Services.IsMarkerTypeRegistered<ExternalResolverMarker>()) {
@@ -313,8 +357,8 @@ public sealed class CirreumAuthorizationBuilder {
 		}
 
 		// Register the tenant resolver
-		this.Services.TryAddScoped<TResolver>();
-		this.Services.TryAddScoped<IExternalTenantResolver>(sp => sp.GetRequiredService<TResolver>());
+		this.Services.TryAddScoped<TExternalTenantResolver>();
+		this.Services.TryAddScoped<IExternalTenantResolver>(sp => sp.GetRequiredService<TExternalTenantResolver>());
 
 		return this;
 	}

@@ -26,6 +26,7 @@
 | Provider | Package | Use Case |
 |----------|---------|----------|
 | **Entra** | `Cirreum.Authorization.Entra` | Azure AD / Entra ID JWT tokens |
+| **OIDC** | `Cirreum.Authorization.Oidc` | Generic OpenID Connect / JWT providers |
 | **API Key** | `Cirreum.Authorization.ApiKey` | Static and dynamic API key authentication |
 | **Signed Request** | `Cirreum.Authorization.SignedRequest` | HMAC-signed requests for partners |
 | **External (BYOID)** | `Cirreum.Authorization.External` | Multi-tenant customer IdP tokens |
@@ -78,7 +79,7 @@ The `ForwardDefaultSelector` examines request characteristics and routes to the 
 2. API Key header     → X-Api-Key present?    → API Key handler
 3. Signed Request     → All 3 headers?        → Signed Request handler
 4. External (BYOID)   → Tenant + Bearer?      → External handler
-5. JWT Bearer         → Bearer token?         → Entra handler (by audience)
+5. JWT Bearer         → Bearer token?         → Entra/OIDC handler (by audience)
                       → Unrecognized audience → Reject (401)
 6. No credentials     → Nothing present       → Skip (anonymous allowed)
 ```
@@ -116,9 +117,10 @@ The `AddAuthorization` method accepts an optional lambda for configuring additio
 
 ```csharp
 builder.AddAuthorization(auth => auth
-    .AddSignedRequest<TResolver>()      // HMAC-signed requests
-    .AddDynamicApiKeys<TResolver>([])   // Database-backed API keys
-    .AddExternal<TResolver>()           // Multi-tenant BYOID
+    .AddRoleResolver<MyRoleResolver>()   // Role enrichment for audience providers
+    .AddSignedRequest<TResolver>()       // HMAC-signed requests
+    .AddDynamicApiKeys<TResolver>([])    // Database-backed API keys
+    .AddExternal<TResolver>()            // Multi-tenant BYOID
 )
 .AddPolicy("MyPolicy", policy => ...);  // Standard ASP.NET Core policies
 ```
@@ -161,10 +163,29 @@ builder.AddAuthorization(auth => auth
 );
 ```
 
+### With Role Enrichment
+
+For audience-based providers (Entra, OIDC, External) where the token does not contain application roles, register an `IRoleResolver` to resolve roles at runtime and add them as `ClaimTypes.Role` claims:
+
+```csharp
+builder.AddAuthorization(auth => auth
+    .AddRoleResolver<DatabaseRoleResolver>()
+);
+```
+
+This registers:
+- Your `IRoleResolver` implementation (scoped)
+- The `AudienceProviderRoleClaimsTransformer` (via `Cirreum.Runtime.AuthorizationProvider`)
+- OpenTelemetry metrics and tracing for the `Cirreum.AuthorizationProvider` diagnostic source
+
+The transformer runs during `UseAuthentication()`, before policies are evaluated. It extracts the user identifier from `oid`, `sub`, or `user_id` claims and calls your resolver. Results are cached per-request and stashed in `HttpContext.Items[ClaimsTransformResult.ItemsKey]` for diagnostics.
+
 ### Combined Setup (All Providers)
 
 ```csharp
 builder.AddAuthorization(auth => auth
+    // Role enrichment for audience-based providers
+    .AddRoleResolver<DatabaseRoleResolver>()
     // External (BYOID) for customer IdPs
     .AddExternal<DatabaseTenantResolver>()
     // Dynamic API keys for internal services
@@ -331,7 +352,7 @@ builder.AddAuthorization()
 | `X-Api-Key` | API Key handler |
 | `X-Client-Id` + `X-Timestamp` + `X-Signature` | Signed Request handler |
 | `X-Tenant-Slug` + `Authorization: Bearer` | External (BYOID) handler |
-| `Authorization: Bearer` (recognized audience) | Entra handler |
+| `Authorization: Bearer` (recognized audience) | Entra/OIDC handler |
 | `Authorization: Bearer` (unrecognized audience) | **Rejected** (ambiguous) |
 | No credentials | **Skipped** (anonymous allowed) |
 
@@ -385,5 +406,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Cirreum Foundation Framework**
+**Cirreum Foundation Framework**  
 *Layered simplicity for modern .NET*

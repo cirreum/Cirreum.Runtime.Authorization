@@ -49,7 +49,7 @@ public static class HostingExtensions {
 	/// <list type="bullet">
 	///   <item><see cref="CirreumAuthorizationBuilder.AddDynamicApiKeys{TResolver}"/> for database-backed API keys</item>
 	///   <item><see cref="CirreumAuthorizationBuilder.AddSignedRequest{TResolver}"/> for signed requests</item>
-	///   <item><see cref="CirreumAuthorizationBuilder.AddExternal{TResolver}"/> for BYOID</item>
+	///   <item><see cref="CirreumAuthorizationBuilder.AddExternalProvider{TResolver}"/> for BYOID</item>
 	/// </list>
 	/// <para>
 	/// See <see cref="AuthorizationPolicies"/> for predefined role-based policies.
@@ -140,6 +140,12 @@ public static class HostingExtensions {
 			EntraAuthorizationRegistrar,
 			EntraAuthorizationSettings,
 			EntraAuthorizationInstanceSettings>(authenticationBuilder);
+
+		// Register Oidc (JWT) provider
+		builder.RegisterAuthorizationProvider<
+			OidcAuthorizationRegistrar,
+			OidcAuthorizationSettings,
+			OidcAuthorizationInstanceSettings>(authenticationBuilder);
 
 		// Register API Key provider from configuration (static api keys)
 		// This populates the ApiKeyClientRegistry with configured keys
