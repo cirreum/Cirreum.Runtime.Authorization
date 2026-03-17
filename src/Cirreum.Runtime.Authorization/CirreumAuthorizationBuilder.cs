@@ -1,5 +1,6 @@
 namespace Cirreum.Authorization;
 
+using Cirreum;
 using Cirreum.Authorization.ApiKey;
 using Cirreum.Authorization.External;
 using Cirreum.Authorization.SignedRequest;
@@ -38,6 +39,7 @@ using OpenTelemetry.Trace;
 /// </remarks>
 public sealed class CirreumAuthorizationBuilder {
 
+	private class ApplicationUserResolverMarker;
 	private class RoleResolverMarker;
 	private class SignedRequestMarker;
 	private class ApiKeyDynamicMarker;
@@ -66,7 +68,52 @@ public sealed class CirreumAuthorizationBuilder {
 	}
 
 	/// <summary>
-	/// Registers an <see cref="IRoleResolver"/> implementation for role enrichment.
+	/// Registers an <see cref="IApplicationUserResolver"/> implementation and bridges it
+	/// to the authorization provider's <see cref="IRoleResolver"/> via an internal adapter.
+	/// </summary>
+	/// <typeparam name="TResolver">
+	/// The resolver type that implements <see cref="IApplicationUserResolver"/>.
+	/// </typeparam>
+	/// <returns>The builder for chaining.</returns>
+	/// <remarks>
+	/// <para>
+	/// The resolver is registered as a scoped service. An internal
+	/// <see cref="ApplicationUserRoleResolverAdapter"/> adapts the resolver to
+	/// <see cref="IRoleResolver"/>, which is consumed by
+	/// <c>AudienceProviderRoleClaimsTransformer</c> during claims transformation.
+	/// The resolved <see cref="IApplicationUser"/> is cached in
+	/// <see cref="Microsoft.AspNetCore.Http.HttpContext.Items"/> for downstream
+	/// components (e.g. <c>UserAccessor</c>).
+	/// </para>
+	/// <para>
+	/// Prefer this method over <see cref="AddRoleResolver{TRoleResolver}"/> for Cirreum
+	/// applications. Use <see cref="AddRoleResolver{TRoleResolver}"/> only when integrating
+	/// with a non-Cirreum authorization system that provides its own role resolution.
+	/// </para>
+	/// </remarks>
+	public CirreumAuthorizationBuilder AddApplicationUserResolver<TResolver>()
+		where TResolver : class, IApplicationUserResolver {
+
+		if (this.Services.IsMarkerTypeRegistered<ApplicationUserResolverMarker>()) {
+			return this;
+		}
+		this.Services.MarkTypeAsRegistered<ApplicationUserResolverMarker>();
+
+		this.Services.TryAddScoped<IApplicationUserResolver, TResolver>();
+		this.Services.TryAddScoped<IRoleResolver, ApplicationUserRoleResolverAdapter>();
+		this.Services.AddAudienceRoleClaimsTransformation();
+
+		// Subscribe to authorization provider telemetry
+		this.Services.AddOpenTelemetry()
+			.WithMetrics(metrics => metrics.AddMeter(AuthorizationDiagnostics.DiagnosticName))
+			.WithTracing(tracing => tracing.AddSource(AuthorizationDiagnostics.DiagnosticName));
+
+		return this;
+
+	}
+
+	/// <summary>
+	/// Registers an <see cref="IRoleResolver"/> implementation directly for role enrichment.
 	/// </summary>
 	/// <typeparam name="TRoleResolver">
 	/// The resolver type that implements <see cref="IRoleResolver"/>.
@@ -74,28 +121,23 @@ public sealed class CirreumAuthorizationBuilder {
 	/// <returns>The builder for chaining.</returns>
 	/// <remarks>
 	/// <para>
-	/// The resolver is registered as a scoped service. It is invoked by
-	/// <c>AudienceProviderRoleClaimsTransformer</c> during claims transformation
-	/// for any audience-based provider. Calling this method also registers the
-	/// claims transformer, <c>IHttpContextAccessor</c>, and subscribes to
-	/// authorization provider telemetry via OpenTelemetry.
-	/// </para>
-	/// <para>
-	/// The resolver receives the user's external identifier (from <c>oid</c>, <c>sub</c>,
-	/// or <c>user_id</c> claims) and should return the application roles for that user.
+	/// Use this method when integrating with a non-Cirreum authorization system that
+	/// provides its own role resolution. For Cirreum applications, prefer
+	/// <see cref="AddApplicationUserResolver{TResolver}"/> which bridges
+	/// <see cref="IApplicationUserResolver"/> to <see cref="IRoleResolver"/> and caches
+	/// the resolved <see cref="IApplicationUser"/> for downstream components.
 	/// </para>
 	/// </remarks>
 	public CirreumAuthorizationBuilder AddRoleResolver<TRoleResolver>()
 		where TRoleResolver : class, IRoleResolver {
 
-		// Check if already registered
 		if (this.Services.IsMarkerTypeRegistered<RoleResolverMarker>()) {
 			return this;
 		}
 		this.Services.MarkTypeAsRegistered<RoleResolverMarker>();
 
 		this.Services.TryAddScoped<IRoleResolver, TRoleResolver>();
-		this.Services.AddRoleEnrichment();
+		this.Services.AddAudienceRoleClaimsTransformation();
 
 		// Subscribe to authorization provider telemetry
 		this.Services.AddOpenTelemetry()
