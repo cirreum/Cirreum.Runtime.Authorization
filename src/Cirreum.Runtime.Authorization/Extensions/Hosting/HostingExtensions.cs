@@ -10,6 +10,7 @@ using Cirreum.AuthorizationProvider;
 using Cirreum.AuthorizationProvider.ApiKey;
 using Cirreum.AuthorizationProvider.SignedRequest;
 using Cirreum.Providers;
+using Cirreum.Security;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -187,6 +188,11 @@ public static class HostingExtensions {
 				$"PrimaryScheme '{primaryScheme}' is not a registered authentication scheme. " +
 				$"Available schemes: {string.Join(", ", registeredSchemes.Schemes)}");
 		}
+
+		// Register scheme-aware boundary resolver before Core's TryAddSingleton default.
+		// TryAdd so consumers can still override by registering before AddAuthorization.
+		builder.Services.TryAddSingleton<IAuthenticationBoundaryResolver>(
+			new PrimarySchemeAuthenticationBoundaryResolver(primaryScheme));
 
 		//
 		// Register Scheme Policy
