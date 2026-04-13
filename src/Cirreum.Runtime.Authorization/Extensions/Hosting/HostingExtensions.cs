@@ -200,104 +200,13 @@ public static class HostingExtensions {
 		authenticationBuilder.AddPolicyScheme(AuthorizationSchemes.Dynamic, "Dynamic Authentication Selector", options => {
 			options.ForwardDefaultSelector = context => {
 
-				// Get External (BYOID) options for conflict detection and scheme selection
-				var externalOptions = context.RequestServices.GetService<ExternalAuthenticationOptions>();
+				// Stash the resolved scheme name in HttpContext.Items so that
+				// UserAccessor can pass the real scheme (not "DynamicScheme") to
+				// IAuthenticationBoundaryResolver for Global/Tenant classification.
+				var scheme = ResolveScheme(context, registeredSchemes);
+				context.Items[IAuthenticationBoundaryResolver.ResolvedSchemeKey] = scheme;
+				return scheme;
 
-				// Collect API key header names for conflict detection
-				var apiKeyHeaders = new List<string>();
-				foreach (var (headerName, _) in registeredSchemes.HeaderSchemes) {
-					apiKeyHeaders.Add(headerName);
-				}
-				var apiKeyResolver = context.RequestServices.GetService<IApiKeyClientResolver>();
-				if (apiKeyResolver is not null) {
-					apiKeyHeaders.AddRange(apiKeyResolver.SupportedHeaders);
-				}
-
-				// 1. Check for conflicting auth indicators (API key header + tenant slug header)
-				// This prevents "scheme shopping" attacks where an attacker sends both
-				if (externalOptions is not null &&
-					ExternalSchemeSelector.HasConflictingIndicators(context, externalOptions, apiKeyHeaders)) {
-					// Route to dedicated rejection scheme - always fails with clear error
-					return AuthorizationSchemes.Ambiguous;
-				}
-
-				// 2. Check statically registered header-based schemes (API keys from configuration)
-				foreach (var (headerName, scheme) in registeredSchemes.HeaderSchemes) {
-					if (context.Request.Headers.ContainsKey(headerName)) {
-						return scheme;
-					}
-				}
-
-				// 3. Check headers from dynamic resolver (database-backed API keys)
-				if (apiKeyResolver is not null) {
-					foreach (var headerName in apiKeyResolver.SupportedHeaders) {
-						if (context.Request.Headers.ContainsKey(headerName)) {
-							// Ensure the scheme is registered
-							var scheme = $"Header:{headerName}";
-							if (!registeredSchemes.HeaderSchemes.ContainsKey(headerName)) {
-								// Dynamically register this header scheme
-								registeredSchemes.RegisterHeaderScheme(headerName, scheme);
-							}
-							return scheme;
-						}
-					}
-				}
-
-				// 4. Check for signed request authentication
-				// Requires all three headers: X-Client-Id, X-Timestamp, and X-Signature
-				var signedRequestResolver = context.RequestServices.GetService<ISignedRequestClientResolver>();
-				if (signedRequestResolver is not null) {
-					var signatureOptions =
-						context.RequestServices.GetService<IOptions<SignatureValidationOptions>>()?.Value
-						?? new SignatureValidationOptions();
-
-					if (context.Request.Headers.ContainsKey(signatureOptions.ClientIdHeaderName) &&
-						context.Request.Headers.ContainsKey(signatureOptions.TimestampHeaderName) &&
-						context.Request.Headers.ContainsKey(signatureOptions.SignatureHeaderName)) {
-						return SignedRequestDefaults.AuthenticationScheme;
-					}
-				}
-
-				// 5. Check for External (BYOID) authentication
-				// Requires tenant identifier (header, path, or subdomain) + bearer token
-				if (externalOptions is not null &&
-					ExternalSchemeSelector.ShouldHandleRequest(context, externalOptions)) {
-					return ExternalDefaults.AuthenticationScheme;
-				}
-
-				// 6. JWT Bearer token routing by audience (Entra and other static IdPs)
-				string? authValue = context.Request.Headers[HeaderNames.Authorization];
-				if (!string.IsNullOrEmpty(authValue) && authValue.StartsWith("Bearer ")) {
-
-					var token = authValue["Bearer ".Length..].Trim();
-					var jwtHandler = new JsonWebTokenHandler();
-
-					if (jwtHandler.CanReadToken(token)) {
-						var jwt = jwtHandler.ReadJsonWebToken(token);
-						var audience = jwt.GetPayloadValue<string>("aud");
-
-						if (!string.IsNullOrEmpty(audience)) {
-							var scheme = registeredSchemes.GetSchemeForAudience(audience);
-							if (!string.IsNullOrEmpty(scheme)) {
-								return scheme;
-							}
-
-							// Only reach here on unrecognized audience — rare
-							var endpoint = context.GetEndpoint();
-							if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() is not null) {
-								return AuthorizationSchemes.Anonymous;
-							}
-						}
-					}
-
-					// Has Authorization header but no scheme matched - reject as ambiguous
-					return AuthorizationSchemes.Ambiguous;
-				}
-
-				// 7. No authentication indicators present - allow anonymous
-				// Return the Anonymous scheme which returns NoResult(), letting [AllowAnonymous]
-				// endpoints work without triggering authentication failure
-				return AuthorizationSchemes.Anonymous;
 			};
 		});
 
@@ -427,6 +336,109 @@ public static class HostingExtensions {
 			AuthorizationPolicies.StandardAdmin,
 			ApplicationRoles.AppSystemRole,
 			ApplicationRoles.AppAdminRole);
+	}
+
+	private static string ResolveScheme(HttpContext context, AuthorizationSchemeRegistry registeredSchemes) {
+
+		// Get External (BYOID) options for conflict detection and scheme selection
+		var externalOptions = context.RequestServices.GetService<ExternalAuthenticationOptions>();
+
+		// Collect API key header names for conflict detection
+		var apiKeyHeaders = new List<string>();
+		foreach (var (headerName, _) in registeredSchemes.HeaderSchemes) {
+			apiKeyHeaders.Add(headerName);
+		}
+		var apiKeyResolver = context.RequestServices.GetService<IApiKeyClientResolver>();
+		if (apiKeyResolver is not null) {
+			apiKeyHeaders.AddRange(apiKeyResolver.SupportedHeaders);
+		}
+
+		// 1. Check for conflicting auth indicators (API key header + tenant slug header)
+		// This prevents "scheme shopping" attacks where an attacker sends both
+		if (externalOptions is not null &&
+			ExternalSchemeSelector.HasConflictingIndicators(context, externalOptions, apiKeyHeaders)) {
+			// Route to dedicated rejection scheme - always fails with clear error
+			return AuthorizationSchemes.Ambiguous;
+		}
+
+		// 2. Check statically registered header-based schemes (API keys from configuration)
+		foreach (var (headerName, scheme) in registeredSchemes.HeaderSchemes) {
+			if (context.Request.Headers.ContainsKey(headerName)) {
+				return scheme;
+			}
+		}
+
+		// 3. Check headers from dynamic resolver (database-backed API keys)
+		if (apiKeyResolver is not null) {
+			foreach (var headerName in apiKeyResolver.SupportedHeaders) {
+				if (context.Request.Headers.ContainsKey(headerName)) {
+					// Ensure the scheme is registered
+					var scheme = $"Header:{headerName}";
+					if (!registeredSchemes.HeaderSchemes.ContainsKey(headerName)) {
+						// Dynamically register this header scheme
+						registeredSchemes.RegisterHeaderScheme(headerName, scheme);
+					}
+					return scheme;
+				}
+			}
+		}
+
+		// 4. Check for signed request authentication
+		// Requires all three headers: X-Client-Id, X-Timestamp, and X-Signature
+		var signedRequestResolver = context.RequestServices.GetService<ISignedRequestClientResolver>();
+		if (signedRequestResolver is not null) {
+			var signatureOptions =
+				context.RequestServices.GetService<IOptions<SignatureValidationOptions>>()?.Value
+				?? new SignatureValidationOptions();
+
+			if (context.Request.Headers.ContainsKey(signatureOptions.ClientIdHeaderName) &&
+				context.Request.Headers.ContainsKey(signatureOptions.TimestampHeaderName) &&
+				context.Request.Headers.ContainsKey(signatureOptions.SignatureHeaderName)) {
+				return SignedRequestDefaults.AuthenticationScheme;
+			}
+		}
+
+		// 5. Check for External (BYOID) authentication
+		// Requires tenant identifier (header, path, or subdomain) + bearer token
+		if (externalOptions is not null &&
+			ExternalSchemeSelector.ShouldHandleRequest(context, externalOptions)) {
+			return ExternalDefaults.AuthenticationScheme;
+		}
+
+		// 6. JWT Bearer token routing by audience (Entra and other static IdPs)
+		string? authValue = context.Request.Headers[HeaderNames.Authorization];
+		if (!string.IsNullOrEmpty(authValue) && authValue.StartsWith("Bearer ")) {
+
+			var token = authValue["Bearer ".Length..].Trim();
+			var jwtHandler = new JsonWebTokenHandler();
+
+			if (jwtHandler.CanReadToken(token)) {
+				var jwt = jwtHandler.ReadJsonWebToken(token);
+				var audience = jwt.GetPayloadValue<string>("aud");
+
+				if (!string.IsNullOrEmpty(audience)) {
+					var scheme = registeredSchemes.GetSchemeForAudience(audience);
+					if (!string.IsNullOrEmpty(scheme)) {
+						return scheme;
+					}
+
+					// Only reach here on unrecognized audience — rare
+					var endpoint = context.GetEndpoint();
+					if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() is not null) {
+						return AuthorizationSchemes.Anonymous;
+					}
+				}
+			}
+
+			// Has Authorization header but no scheme matched - reject as ambiguous
+			return AuthorizationSchemes.Ambiguous;
+		}
+
+		// 7. No authentication indicators present - allow anonymous
+		// Return the Anonymous scheme which returns NoResult(), letting [AllowAnonymous]
+		// endpoints work without triggering authentication failure
+		return AuthorizationSchemes.Anonymous;
+
 	}
 
 }
