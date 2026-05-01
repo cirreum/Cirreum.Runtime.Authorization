@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-01
+
 Per-scheme application user resolution for multi-IdP server hosts, paired
 with the `Cirreum.Core 5.0.0` rework. A Cirreum API host that fans in
 across workforce + customer IdPs (and credential schemes like ApiKey /
