@@ -77,11 +77,16 @@ public sealed class CirreumAuthorizationBuilder {
 	/// <returns>The builder for chaining.</returns>
 	/// <remarks>
 	/// <para>
-	/// The resolver is registered as a scoped service. An internal
-	/// <see cref="ApplicationUserRoleResolverAdapter"/> adapts the resolver to
-	/// <see cref="IRoleResolver"/>, which is consumed by
-	/// <c>AudienceProviderRoleClaimsTransformer</c> during claims transformation.
-	/// The resolved <see cref="IApplicationUser"/> is cached in
+	/// May be called multiple times to register one resolver per IdP scheme. Each resolver's
+	/// <see cref="IApplicationUserResolver.Scheme"/> determines which scheme it handles; a
+	/// resolver with <see cref="IApplicationUserResolver.Scheme"/> equal to <see langword="null"/>
+	/// acts as the default fallback. The adapter selects the matching resolver per request based
+	/// on the authenticated scheme.
+	/// </para>
+	/// <para>
+	/// The internal <see cref="ApplicationUserRoleResolverAdapter"/> bridges the resolved user to
+	/// <see cref="IRoleResolver"/>, which is consumed by <c>AudienceProviderRoleClaimsTransformer</c>
+	/// during claims transformation. The resolved <see cref="IApplicationUser"/> is cached in
 	/// <see cref="Microsoft.AspNetCore.Http.HttpContext.Items"/> for downstream
 	/// components (e.g. <c>UserAccessor</c>).
 	/// </para>
@@ -94,19 +99,21 @@ public sealed class CirreumAuthorizationBuilder {
 	public CirreumAuthorizationBuilder AddApplicationUserResolver<TResolver>()
 		where TResolver : class, IApplicationUserResolver {
 
-		if (this.Services.IsMarkerTypeRegistered<ApplicationUserResolverMarker>()) {
-			return this;
+		// Resolver — multiple registrations supported (one per scheme).
+		this.Services.AddScoped<IApplicationUserResolver, TResolver>();
+
+		// Adapter + telemetry — register once. The adapter is the single dispatcher;
+		// it injects IEnumerable<IApplicationUserResolver> and selects per request.
+		if (!this.Services.IsMarkerTypeRegistered<ApplicationUserResolverMarker>()) {
+			this.Services.MarkTypeAsRegistered<ApplicationUserResolverMarker>();
+
+			this.Services.TryAddScoped<IRoleResolver, ApplicationUserRoleResolverAdapter>();
+			this.Services.AddAudienceRoleClaimsTransformation();
+
+			this.Services.AddOpenTelemetry()
+				.WithMetrics(metrics => metrics.AddMeter(AuthorizationDiagnostics.DiagnosticName))
+				.WithTracing(tracing => tracing.AddSource(AuthorizationDiagnostics.DiagnosticName));
 		}
-		this.Services.MarkTypeAsRegistered<ApplicationUserResolverMarker>();
-
-		this.Services.TryAddScoped<IApplicationUserResolver, TResolver>();
-		this.Services.TryAddScoped<IRoleResolver, ApplicationUserRoleResolverAdapter>();
-		this.Services.AddAudienceRoleClaimsTransformation();
-
-		// Subscribe to authorization provider telemetry
-		this.Services.AddOpenTelemetry()
-			.WithMetrics(metrics => metrics.AddMeter(AuthorizationDiagnostics.DiagnosticName))
-			.WithTracing(tracing => tracing.AddSource(AuthorizationDiagnostics.DiagnosticName));
 
 		return this;
 

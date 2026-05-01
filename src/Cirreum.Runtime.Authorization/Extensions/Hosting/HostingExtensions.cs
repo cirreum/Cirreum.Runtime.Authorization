@@ -200,11 +200,11 @@ public static class HostingExtensions {
 		authenticationBuilder.AddPolicyScheme(AuthorizationSchemes.Dynamic, "Dynamic Authentication Selector", options => {
 			options.ForwardDefaultSelector = context => {
 
-				// Stash the resolved scheme name in HttpContext.Items so that
-				// UserAccessor can pass the real scheme (not "DynamicScheme") to
-				// IAuthenticationBoundaryResolver for Global/Tenant classification.
+				// Stash the resolved scheme name in HttpContext.Items so downstream
+				// consumers (boundary resolver, application user resolver dispatcher,
+				// UserAccessor) can read the real scheme rather than "DynamicScheme".
 				var scheme = ResolveScheme(context, registeredSchemes);
-				context.Items[IAuthenticationBoundaryResolver.ResolvedSchemeKey] = scheme;
+				context.Items[AuthenticationContextKeys.AuthenticatedScheme] = scheme;
 				return scheme;
 
 			};
