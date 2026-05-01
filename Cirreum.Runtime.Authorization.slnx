@@ -10,6 +10,7 @@
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs/AUTHENTICATION-ARCHITECTURE.md" />
+    <File Path="docs/CHANGELOG.md" />
   </Folder>
   <Folder Name="/publish/">
     <File Path=".github/workflows/publish.yml" />
